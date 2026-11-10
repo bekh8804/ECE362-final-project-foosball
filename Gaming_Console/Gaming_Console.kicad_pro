@@ -641,12 +641,90 @@
           "label": "Datasheet",
           "name": "Datasheet",
           "show": true
+        },
+        {
+          "group_by": false,
+          "label": "MPN",
+          "name": "MPN",
+          "show": false
+        },
+        {
+          "group_by": false,
+          "label": "Package",
+          "name": "Package",
+          "show": false
+        },
+        {
+          "group_by": false,
+          "label": "Purchase URL",
+          "name": "Purchase URL",
+          "show": false
+        },
+        {
+          "group_by": false,
+          "label": "SOURCE_URL",
+          "name": "SOURCE_URL",
+          "show": false
+        },
+        {
+          "group_by": false,
+          "label": "STANDARD",
+          "name": "STANDARD",
+          "show": false
+        },
+        {
+          "group_by": false,
+          "label": "Sim.Device",
+          "name": "Sim.Device",
+          "show": false
+        },
+        {
+          "group_by": false,
+          "label": "Sim.Pins",
+          "name": "Sim.Pins",
+          "show": false
+        },
+        {
+          "group_by": false,
+          "label": "Sim.Type",
+          "name": "Sim.Type",
+          "show": false
+        },
+        {
+          "group_by": false,
+          "label": "MAXIMUM_PACKAGE_HEIGHT",
+          "name": "MAXIMUM_PACKAGE_HEIGHT",
+          "show": false
+        },
+        {
+          "group_by": false,
+          "label": "Description",
+          "name": "Description",
+          "show": false
+        },
+        {
+          "group_by": false,
+          "label": "MANUFACTURER",
+          "name": "MANUFACTURER",
+          "show": false
+        },
+        {
+          "group_by": false,
+          "label": "#",
+          "name": "${ITEM_NUMBER}",
+          "show": false
+        },
+        {
+          "group_by": false,
+          "label": "DATASHEET_URL",
+          "name": "DATASHEET_URL",
+          "show": false
         }
       ],
       "filter_string": "",
       "group_symbols": true,
       "include_excluded_from_bom": true,
-      "name": "Default Editing",
+      "name": "",
       "sort_asc": true,
       "sort_field": "Reference"
     },
@@ -691,7 +769,7 @@
         "uuid": "b1e01389-b217-4ec4-a56b-a3fd964039b3"
       }
     ],
-    "used_designators": "#FLG2,#FLG7-8,#PWR3-4,#PWR7-47,#PWR67,#PWR117,#PWR145-151,C4,C24-44,C65,CR1,D1-5,J1-3,J6,J9,NT1-2,R1-2,R15-20,R36-48,R55-57,RV1,SW5-8,Slide2,TP1-3,U2,U4-5,U10-14,VolPot1,Y2",
+    "used_designators": "#FLG2-4,#FLG7-8,#PWR1-4,#PWR7-47,#PWR64-67,#PWR114-122,#PWR139-151,BottomSocket1,C4,C22-44,C62-65,CR1,D1-5,J1-4,J6,J9,Joy1,LS1,NT1-2,PD1-2,R1-2,R6,R8,R11-20,R36-48,R53-57,RV1,SW1,SW3-8,Slide1-2,TP1-3,TopSocket1,U2,U4-5,U10-14,U17-18,VolPot1,Y2",
     "variants": []
   },
   "sheets": [
