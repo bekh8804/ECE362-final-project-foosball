@@ -5260,17 +5260,6 @@
 		)
 		(uuid "36da2c8d-cec5-43ad-830c-20cef7d36943")
 	)
-	(text "Powerswitch\n"
-		(exclude_from_sim no)
-		(at 62.992 263.144 0)
-		(effects
-			(font
-				(size 2.54 2.54)
-			)
-			(justify left bottom)
-		)
-		(uuid "52fe4a3f-3a75-4950-b41f-38bbd16aa61a")
-	)
 	(text "Slider Control"
 		(exclude_from_sim no)
 		(at 164.592 227.076 0)
@@ -5648,16 +5637,6 @@
 			(type default)
 		)
 		(uuid "084fdedc-838b-4ae5-b38a-ec4d9e8232e2")
-	)
-	(polyline
-		(pts
-			(xy 22.86 287.02) (xy 107.95 287.02)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "088d112d-5531-41f3-b3e1-6b9cc5fc9fc4")
 	)
 	(wire
 		(pts
@@ -6741,7 +6720,7 @@
 	)
 	(polyline
 		(pts
-			(xy 193.04 86.36) (xy 193.04 39.37)
+			(xy 193.04 86.36) (xy 193.04 40.64)
 		)
 		(stroke
 			(width 0)
@@ -7111,7 +7090,7 @@
 	)
 	(polyline
 		(pts
-			(xy 22.86 40.64) (xy 22.86 287.02)
+			(xy 22.86 40.64) (xy 22.86 256.54)
 		)
 		(stroke
 			(width 0)
@@ -12046,7 +12025,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical"
+		(property "Footprint" "Connector_JST:JST_PH_S3B-PH-K_1x03_P2.00mm_Horizontal"
 			(at 132.08 107.95 0)
 			(hide yes)
 			(show_name no)
