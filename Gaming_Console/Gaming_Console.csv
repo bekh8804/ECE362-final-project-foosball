@@ -5,7 +5,7 @@
 "C62","1","100u","","","","","${EXCLUDE_FROM_POS_FILES}","Capacitor_SMD:C_0805_2012Metric",""
 "C63,C65","2","1n","","","","","${EXCLUDE_FROM_POS_FILES}","Capacitor_SMD:C_0805_2012Metric",""
 "C64","1","0.05u","","","","","${EXCLUDE_FROM_POS_FILES}","Capacitor_SMD:C_0805_2012Metric",""
-"J9","1","UART_Socket","","","","","${EXCLUDE_FROM_POS_FILES}","Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical",""
+"J9","1","UART_Socket","","","","","${EXCLUDE_FROM_POS_FILES}","Connector_JST:JST_PH_S3B-PH-K_1x03_P2.00mm_Horizontal",""
 "Joy1","1","COM-09032","","","","","${EXCLUDE_FROM_POS_FILES}","COM-09032:XDCR_COM-09032","https://s3.amazonaws.com/snapeda/datasheet/COM-09032_SparkFun_Electronics.pdf"
 "LS1","1","Speaker","","","","","${EXCLUDE_FROM_POS_FILES}","Buzzer_Beeper:Speaker_CUI_CMR-1206S-67",""
 "PD1","1","RED","","","","","${EXCLUDE_FROM_POS_FILES}","LED_SMD:LED_0805_2012Metric",""
