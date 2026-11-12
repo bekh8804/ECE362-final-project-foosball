@@ -1,0 +1,321 @@
+#!/bin/sh
+
+settings=.vscode/settings.json
+
+scalar_keys="chat.disableAIFeatures chat.agent.enabled chat.commandCenter.enabled github.copilot.editor.enableAutoCompletions github.copilot.inlineSuggest.enable extensions.ignoreRecommendations"
+
+ensure_scalar_setting() {
+    key=$1
+    value=$2
+    esc_key=$(printf '%s' "$key" | sed 's/\./\\./g')
+
+    if grep -Eq "\"$esc_key\"[[:space:]]*:[[:space:]]*$value([[:space:]]*[,}])" "$settings"; then
+        return
+    fi
+
+    if grep -Eq "\"$esc_key\"[[:space:]]*:" "$settings"; then
+        awk -v pat="\"$key\"[[:space:]]*:" -v val="$value" '
+        BEGIN { done = 0 }
+        {
+            if (!done && $0 ~ pat) {
+                sub(/:[[:space:]]*[^,}]+/, ": " val)
+                done = 1
+            }
+            print
+        }' "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
+        return
+    fi
+
+    awk -v key="$key" -v val="$value" '
+    { lines[NR] = $0 }
+    END {
+        last = 0
+        for (i = NR; i >= 1; i--) {
+            if (lines[i] ~ /^[[:space:]]*}[[:space:]]*$/) {
+                last = i
+                break
+            }
+        }
+
+        if (last == 0) {
+            print "{"
+            print "    \"" key "\": " val
+            print "}"
+            exit
+        }
+
+        prev = 0
+        for (i = last - 1; i >= 1; i--) {
+            if (lines[i] !~ /^[[:space:]]*$/) {
+                prev = i
+                break
+            }
+        }
+
+        need_comma = 0
+        if (prev > 0) {
+            if (lines[prev] !~ /,[[:space:]]*$/ && lines[prev] !~ /^[[:space:]]*\{[[:space:]]*$/) {
+                need_comma = 1
+            }
+        }
+
+        for (i = 1; i < last; i++) {
+            if (i == prev && need_comma) {
+                print lines[i] ","
+            } else {
+                print lines[i]
+            }
+        }
+
+        print "    \"" key "\": " val
+
+        for (i = last; i <= NR; i++) {
+            print lines[i]
+        }
+    }' "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
+}
+
+ensure_copilot_enable_block() {
+    if grep -Eq '"github\.copilot\.enable"[[:space:]]*:' "$settings"; then
+        return
+    fi
+
+    awk '
+    { lines[NR] = $0 }
+    END {
+        last = 0
+        for (i = NR; i >= 1; i--) {
+            if (lines[i] ~ /^[[:space:]]*}[[:space:]]*$/) {
+                last = i
+                break
+            }
+        }
+
+        if (last == 0) {
+            exit 1
+        }
+
+        prev = 0
+        for (i = last - 1; i >= 1; i--) {
+            if (lines[i] !~ /^[[:space:]]*$/) {
+                prev = i
+                break
+            }
+        }
+
+        need_comma = 0
+        if (prev > 0) {
+            if (lines[prev] !~ /,[[:space:]]*$/ && lines[prev] !~ /^[[:space:]]*\{[[:space:]]*$/) {
+                need_comma = 1
+            }
+        }
+
+        for (i = 1; i < last; i++) {
+            if (i == prev && need_comma) {
+                print lines[i] ","
+            } else {
+                print lines[i]
+            }
+        }
+
+        print "    \"github.copilot.enable\": {"
+        print "        \"*\": false"
+        print "    }"
+
+        for (i = last; i <= NR; i++) {
+            print lines[i]
+        }
+    }' "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
+    rm -f "$settings.tmp"
+}
+
+ensure_ai_settings() {
+    mkdir -p .vscode || exit 1
+
+    if [ ! -f "$settings" ] || [ ! -s "$settings" ]; then
+        cat > "$settings" << 'EOF'
+{
+    "chat.disableAIFeatures": true,
+    "chat.agent.enabled": false,
+    "chat.commandCenter.enabled": false,
+    "github.copilot.enable": {
+        "*": false
+    },
+    "github.copilot.editor.enableAutoCompletions": false,
+    "github.copilot.inlineSuggest.enable": false,
+    "extensions.ignoreRecommendations": true
+}
+EOF
+        return
+    fi
+
+    for key in $scalar_keys; do
+        case $key in
+            chat.disableAIFeatures|extensions.ignoreRecommendations) value=true ;;
+            *) value=false ;;
+        esac
+        ensure_scalar_setting "$key" "$value"
+    done
+
+    ensure_copilot_enable_block
+}
+
+ensure_ai_settings
+
+extensions=.vscode/extensions.json
+unwanted_ids="anthropic.claude-code GitHub.copilot GitHub.copilot-chat saoudrizwan.claude-dev RooVeterinaryInc.roo-cline Continue.continue Codeium.CodeiumVS sourcegraph.cody-ai TabNine.tabnine-vscode AmazonWebServices.amazon-q-vscode Google.geminicodeassist supermaven.supermaven Codium.codium augment.vscode-augment"
+
+ensure_unwanted_id() {
+    id=$1
+
+    if grep -Fq "\"$id\"" "$extensions"; then
+        return
+    fi
+
+    awk -v id="$id" '
+    { lines[NR] = $0 }
+    END {
+        key_line = 0
+        for (i = 1; i <= NR; i++) {
+            if (lines[i] ~ /"unwantedRecommendations"[[:space:]]*:/) {
+                key_line = i
+                break
+            }
+        }
+        if (key_line == 0) {
+            exit 1
+        }
+
+        depth = 0
+        close_line = 0
+        for (i = key_line; i <= NR; i++) {
+            s = lines[i]
+            o = gsub(/\[/, "[", s)
+            c = gsub(/\]/, "]", s)
+            depth += o - c
+            if (depth <= 0) {
+                close_line = i
+                break
+            }
+        }
+        if (close_line == 0) {
+            exit 1
+        }
+
+        prev = 0
+        for (i = close_line - 1; i >= key_line; i--) {
+            if (lines[i] !~ /^[[:space:]]*$/) {
+                prev = i
+                break
+            }
+        }
+
+        need_comma = 0
+        if (prev >= key_line) {
+            if (lines[prev] !~ /,[[:space:]]*$/ && lines[prev] !~ /\[[[:space:]]*$/) {
+                need_comma = 1
+            }
+        }
+
+        for (i = 1; i < close_line; i++) {
+            if (i == prev && need_comma) {
+                print lines[i] ","
+            } else {
+                print lines[i]
+            }
+        }
+
+        print "        \"" id "\""
+
+        for (i = close_line; i <= NR; i++) {
+            print lines[i]
+        }
+    }' "$extensions" > "$extensions.tmp" && mv "$extensions.tmp" "$extensions"
+    rm -f "$extensions.tmp"
+}
+
+ensure_extensions_json() {
+    mkdir -p .vscode || exit 1
+
+    if [ ! -f "$extensions" ] || [ ! -s "$extensions" ]; then
+        {
+            printf '{\n    "recommendations": [\n        "platformio.platformio-ide"\n    ],\n    "unwantedRecommendations": [\n'
+            n=0
+            for id in $unwanted_ids; do
+                n=$((n + 1))
+            done
+            i=0
+            for id in $unwanted_ids; do
+                i=$((i + 1))
+                if [ "$i" -eq "$n" ]; then
+                    printf '        "%s"\n' "$id"
+                else
+                    printf '        "%s",\n' "$id"
+                fi
+            done
+            printf '    ]\n}\n'
+        } > "$extensions"
+        return
+    fi
+
+    if ! grep -Eq '"unwantedRecommendations"[[:space:]]*:' "$extensions"; then
+        awk -v ids="$unwanted_ids" '
+        BEGIN { n = split(ids, arr, " ") }
+        { lines[NR] = $0 }
+        END {
+            last = 0
+            for (i = NR; i >= 1; i--) {
+                if (lines[i] ~ /^[[:space:]]*}[[:space:]]*$/) {
+                    last = i
+                    break
+                }
+            }
+            if (last == 0) {
+                exit 1
+            }
+
+            prev = 0
+            for (i = last - 1; i >= 1; i--) {
+                if (lines[i] !~ /^[[:space:]]*$/) {
+                    prev = i
+                    break
+                }
+            }
+
+            need_comma = 0
+            if (prev > 0) {
+                if (lines[prev] !~ /,[[:space:]]*$/ && lines[prev] !~ /^[[:space:]]*\{[[:space:]]*$/) {
+                    need_comma = 1
+                }
+            }
+
+            for (i = 1; i < last; i++) {
+                if (i == prev && need_comma) {
+                    print lines[i] ","
+                } else {
+                    print lines[i]
+                }
+            }
+
+            print "    \"unwantedRecommendations\": ["
+            for (i = 1; i <= n; i++) {
+                sep = (i < n) ? "," : ""
+                print "        \"" arr[i] "\"" sep
+            }
+            print "    ]"
+
+            for (i = last; i <= NR; i++) {
+                print lines[i]
+            }
+        }' "$extensions" > "$extensions.tmp" && mv "$extensions.tmp" "$extensions"
+        rm -f "$extensions.tmp"
+    fi
+
+    for id in $unwanted_ids; do
+        ensure_unwanted_id "$id"
+    done
+}
+
+ensure_extensions_json
+
+exit 0
