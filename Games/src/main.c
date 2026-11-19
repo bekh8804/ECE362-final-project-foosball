@@ -4,474 +4,424 @@
 #include <string.h>
 #include "pico/stdlib.h"
 #include "hardware/uart.h"
+#include "hardware/sync.h"
+//#include "printfcolor.h"
 
 //////////////////////////////////////////////////////////////////////////////
-// No autotest, but you might want to set this anyway.
-const char* username = "jsuantho";
+// I/O PINS
+#define BT1_PIN 16 // 19
+#define BT2_PIN 17 // 18
+#define BT3_PIN 18 // 16
+#define BT4_PIN 19 // 17
 
-// When testing basic TX/RX
-// #define STEP2
-// When connecting UART to printf(), fgets()
-// #define STEP3
-// When testing UART IRQ for buffering
-// #define STEP4
-// When testing PCS
-#define STEP5
+#define UART_ID uart1
+#define UART_BAUD 115200
+#define UART_TX_PIN 4
+#define UART_RX_PIN 5
 
+// MENU PARAM
+#define NUM_GAMES 3
 //////////////////////////////////////////////////////////////////////////////
 
-void init_uart() {
-    // fill in
-    // Set GPIO 0 and 1 as UART TX and RX
-    hw_write_masked(&pads_bank0_hw->io[0],
-                   PADS_BANK0_GPIO0_IE_BITS,
-                   PADS_BANK0_GPIO0_IE_BITS | PADS_BANK0_GPIO0_OD_BITS
-    );
-    hw_write_masked(&pads_bank0_hw->io[1],
-                   PADS_BANK0_GPIO0_IE_BITS,
-                   PADS_BANK0_GPIO0_IE_BITS | PADS_BANK0_GPIO0_OD_BITS
-    );
-    io_bank0_hw->io[0].ctrl = GPIO_FUNC_UART << IO_BANK0_GPIO0_CTRL_FUNCSEL_LSB;
-    io_bank0_hw->io[1].ctrl = GPIO_FUNC_UART << IO_BANK0_GPIO0_CTRL_FUNCSEL_LSB;
-    hw_clear_bits(&pads_bank0_hw->io[0], PADS_BANK0_GPIO0_ISO_BITS);
-    hw_clear_bits(&pads_bank0_hw->io[1], PADS_BANK0_GPIO0_ISO_BITS);
+enum Screen {
+    MAIN_MENU,
+    SELECTOR,
 
-    // Set Baud rate to 115200
-    uart0_hw->ibrd = 81u;
-    uart0_hw->fbrd = 24u;
+    PONG_MENU,
+    PONG_GAME,
 
-    // Set configs
-    // 8 data bits: 11 on bit 6:5
-    // No Parity: 0 on bit 1 
-    // 1 Stop bit: 0 on bit 3
-    hw_write_masked(
-        &uart0_hw->lcr_h,
-        (3u << 5),
-        (3u << 5) | (1u << 3) | (1u << 1)
-    );
+    TETRIS_MENU,
+    TETRIS_GAME,
 
-    // Enable UART, TX, and RX
-    uart0_hw->cr = 1u | (1u << 8) | (1u << 9);
+    FOOSBALL_LOBBY,
+    FOOSBALL_MENU,
+    FOOSBALL_GAME
+};
+
+// UART PARAM
+#define UART_HELLO_INTERVAL 250
+#define UART_TIMEOUT 1500
+
+bool peerConnected = false;
+bool peerReady = false;
+
+uint32_t lastUARTSend = 0;
+uint32_t lastUARTReceive = 0;
+
+typedef enum {
+    UART_HOST_REQUEST = 0xA1,
+    UART_JOIN_ACK     = 0xA2,
+    UART_START_GAME   = 0xA3
+} UARTMessage;
+
+typedef enum {
+    ROLE_NONE,
+    ROLE_HOST,
+    ROLE_CLIENT
+} MultiplayerRole;
+
+MultiplayerRole role = ROLE_NONE;
+
+// Constants
+const char *gameList[NUM_GAMES] = {
+    "Pong",
+    "Tetris",
+    "Foosball"
+};
+
+// Global Var
+void printMenu();
+void menu_select_up();
+void menu_select_down();
+
+enum Screen screen = MAIN_MENU;
+
+// Menu Selector
+volatile int lastPressed = 0;
+int menuCurrentSelect = 0;
+int menuLength = 5;
+const char** menuList;
+
+// PONG
+void pong_init()
+{
+    screen = PONG_MENU;
+    printf("You are playing Pong\n");
 }
 
-#ifdef STEP2
-int main() {
-    init_uart();
-    for (;;) {
-        char buf[2];
-        uart_read_blocking(uart0, (uint8_t*)buf, sizeof(buf) - 1);
-        buf[sizeof(buf) - 1] = '\0'; // Ensure null-termination
-        uart_puts(uart0, "You said: ");
-        uart_puts(uart0, buf);
-        uart_puts(uart0, "\n");
+// TETRIS
+void tetris_init()
+{
+    screen = TETRIS_MENU;
+    printf("You are playing Tetris\n");
+}
+
+// FOOSBALL
+void foosball_init()
+{
+    screen = FOOSBALL_LOBBY;
+    role = ROLE_HOST;
+
+    printf("Connect 2P controller to start playing Foosball\n");
+}
+
+void foosball_start()
+{
+    if(role != ROLE_HOST || screen != FOOSBALL_MENU)
+        return;
+
+    uart_putc_raw(UART_ID, UART_START_GAME);
+    screen = FOOSBALL_GAME;
+}
+
+void foosball_game_init()
+{
+    printf("Foosball game started!\n");
+
+    if(role == ROLE_HOST)
+        printf("You are Player 1 (Host)\n");
+    else
+        printf("You are Player 2 (Client)\n");
+}
+
+void foosball_game_update()
+{
+    // TODO
+}
+
+// PUSH BUTTONS
+void pb_init()
+{
+    uint32_t BTMask =  (1u << BT1_PIN) | (1u << BT2_PIN) | (1u << BT3_PIN) | (1u << BT4_PIN);
+    gpio_init_mask(BTMask);
+
+    gpio_set_dir(BT1_PIN, false);
+    gpio_set_dir(BT2_PIN, false);
+    gpio_set_dir(BT3_PIN, false);
+    gpio_set_dir(BT4_PIN, false);
+}
+
+void pb_isr()
+{
+    if(gpio_get_irq_event_mask(BT1_PIN) & 8u)
+    {
+        gpio_acknowledge_irq(BT1_PIN, 8u);
+        lastPressed = 1;
+    }
+
+    if(gpio_get_irq_event_mask(BT2_PIN) & 8u)
+    {
+        gpio_acknowledge_irq(BT2_PIN, 8u);
+        lastPressed = 2;
+    }
+
+    if(gpio_get_irq_event_mask(BT3_PIN) & 8u)
+    {
+        gpio_acknowledge_irq(BT3_PIN, 8u);
+        lastPressed = 3;
+    }
+
+    if(gpio_get_irq_event_mask(BT4_PIN) & 8u)
+    {
+        gpio_acknowledge_irq(BT4_PIN, 8u);
+        lastPressed = 4;
     }
 }
-#endif
 
-//////////////////////////////////////////////////////////////////////////////
-
-#ifdef STEP3
-
-// 3.3
-int _read(__unused int handle, char *buffer, int length) {
-    // Your code here to read from the UART and fill the buffer.
-    // DO NOT USE THE STDIO_* FUNCTIONS FROM ABOVE.  Only UART ones.
-
-    // The argument "handle" is unused.  This is meant for use with 
-    // files, which are not very different from text streams.  However, 
-    // we read from the UART, not the file specified by the handle.
-
-    // handle is irrelevant since these functions will only ever be called 
-    // by the correct functions.  No need for an if statement.
-
-    // Instructions: Given the buffer and a specific length to read, read 1 
-    // character at a time from the UART until the buffer is 
-    // filled or the length is reached. 
+void pb_irq_init()
+{
+    // Add handler functions
+    uint32_t BTMask =  (1u << BT1_PIN) | (1u << BT2_PIN) | (1u << BT3_PIN) | (1u << BT4_PIN);
+    gpio_add_raw_irq_handler_masked(BTMask, pb_isr);
     
-    int i = 0;
-    while(i < length){
-        // Loop until ready to read from uart (RX is not empty)
-        while(uart0_hw->fr & UART_UARTFR_RXFE_BITS);
-        // Take one character and put in buffer[i]
-        *(buffer + i)  = uart0_hw->dr & 0xFF;
-        if(*(buffer + i) == 8){ // is this a backspace
-            putchar(8u); // print it
-            putchar(32u); // Followed by a space
-            putchar(8u); // Followed by another backspace
-        }
-        else
-        {
-            putchar(*(buffer + i));
-            i++;
-        }
-    }
+    // Enable GPIO IRQs (on core 0)
+    gpio_set_irq_enabled(BT1_PIN, 8u, true);
+    gpio_set_irq_enabled(BT2_PIN, 8u, true);
+    gpio_set_irq_enabled(BT3_PIN, 8u, true);
+    gpio_set_irq_enabled(BT4_PIN, 8u, true);
 
-    return i;
+    // Enable BANK0 IRQ interrupt (21 For safe)
+    nvic_hw->icpr[0] = 1u << 21;
+    nvic_hw->iser[0] = 1u << 21;
 }
 
-int _write(__unused int handle, char *buffer, int length) {
-    // Your code here to write to the UART from the buffer.
-    // DO NOT USE THE STDIO_* FUNCTIONS FROM ABOVE.  Only UART ones.
+// UART
+void uart_process_message(uint8_t msg)
+{
+    switch(msg)
+    {
+        case UART_HOST_REQUEST:
+            // Accept automatically while in the game selector
+            if((screen == SELECTOR || screen == MAIN_MENU)
+               && role == ROLE_NONE)
+            {
+                role = ROLE_CLIENT;
+                screen = FOOSBALL_LOBBY;
 
-    // The argument "handle" is unused.  This is meant for use with 
-    // files, which are not very different from text streams.  However, 
-    // we write to the UART, not the file specified by the handle.
+                uart_putc_raw(UART_ID, UART_JOIN_ACK);
+                printf("Joined Foosball as Player 2!\n");
+            }
+            else if(screen == FOOSBALL_LOBBY &&
+                    role == ROLE_CLIENT)
+            {
+                // Resend acknowledgement if host is still waiting
+                uart_putc_raw(UART_ID, UART_JOIN_ACK);
+            }
+            break;
 
-    // handle is irrelevant since these functions will only ever be called 
-    // by the correct functions.  No need for an if statement.
+        case UART_JOIN_ACK:
+            if(screen == FOOSBALL_LOBBY &&
+               role == ROLE_HOST)
+            {
+                screen = FOOSBALL_MENU;
+                printf("Player 2 connected!\n");
+                printf("Press BT4 to start Foosball.\n");
+            }
+            break;
 
-    // Instructions: Given the buffer and a specific length to write, write 1
-    // character at a time to the UART until the length is reached. 
-    int i = 0;
-    while (i < length) {
-        // Loop until ready to write to uart (TX is not full)
-        while(uart0_hw->fr & UART_UARTFR_TXFF_BITS);
-        // Take one character and put in uart
-        uart0_hw->dr = *(buffer + i);
-        i++;
+        case UART_START_GAME:
+            if(screen == FOOSBALL_LOBBY &&
+               role == ROLE_CLIENT)
+            {
+                screen = FOOSBALL_GAME;
+            }
+            break;
+    }
+}
+
+void uart_service()
+{
+    uint32_t now = to_ms_since_boot(get_absolute_time());
+
+    // Host periodically requests a connection
+    if(screen == FOOSBALL_LOBBY && role == ROLE_HOST)
+    {
+        if(now - lastUARTSend >= UART_HELLO_INTERVAL)
+        {
+            uart_putc_raw(UART_ID, UART_HOST_REQUEST);
+            lastUARTSend = now;
+        }
     }
 
-    return i;
+    // Handle incoming UART messages
+    while(uart_is_readable(UART_ID))
+    {
+        uint8_t msg = uart_getc(UART_ID);
+        uart_process_message(msg);
+    }
+}
+
+void game_uart_init()
+{
+    gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
+
+    uart_init(UART_ID, UART_BAUD);
+
+    uart_set_format(UART_ID, 8, 1, UART_PARITY_NONE);
+    uart_set_fifo_enabled(UART_ID, true);
+}
+
+// UTILITIES
+void menu_select_down()
+{
+    if(screen != SELECTOR) return;
+    if(menuCurrentSelect >= menuLength) return;
+    menuCurrentSelect++;
+}
+
+void menu_select_up()
+{
+    if(screen != SELECTOR) return;
+    if(menuCurrentSelect <= 1) return;
+    menuCurrentSelect--;
+}
+
+void printMenu()
+{
+    int i;
+
+    for(i = 0; i < menuLength; i++)
+    {
+        if(i+1 == menuCurrentSelect){
+            printf("%d. [%s] <--\n", i+1, menuList[i]);
+            continue;
+        }
+        printf("%d. %s\n", i+1, menuList[i]);
+    }
+}
+
+void selectorMenu(const char **list, int listLength)
+{
+    screen = SELECTOR;
+
+    menuList = list;
+    menuLength = listLength;
+    menuCurrentSelect = 1;
+
+    printMenu();
+}
+
+void selector_update(int button)
+{
+    if(button == 1)
+    {
+        menu_select_up();
+        printMenu();
+    }
+    else if(button == 2)
+    {
+        menu_select_down();
+        printMenu();
+    }
+    else if(button == 4)
+    {
+        switch(menuCurrentSelect)
+        {
+            case 1:
+                pong_init();
+                break;
+
+            case 2:
+                tetris_init();
+                break;
+
+            case 3:
+                foosball_init();
+                break;
+        }
+    }
 }
 
 int main()
 {
-    init_uart();
+    stdio_init_all();
+    pb_init();
+    pb_irq_init();
+    game_uart_init();
 
-    // insert any setbuf lines below this line...
-    setbuf(stdout, NULL);
-    setbuf(stdin, NULL);
-    char name[8];
-    int age = 0;
-    for(;;) {
-        printf("Enter your name and age: ");
-        scanf("%s %d", name, &age);
-        printf("Hello, %s! You are %d years old.\n", name, age);
-        sleep_ms(100);  // in case the output loops and is too fast
-    }
-}
-#endif
+    printf("Welcome to ");
+    sleep_ms(800);
+    printf("HaithamPlayer420!\n");
+    sleep_ms(800);
+    printf("Please select the game you wish to play today.\n");
 
-//////////////////////////////////////////////////////////////////////////////
+    // Initialize game selector
+    selectorMenu(gameList, NUM_GAMES);
 
-#ifdef STEP4
+    enum Screen previousScreen = screen;
 
-#define BUFSIZE 32
-char serbuf[BUFSIZE];
-int seridx = 0;
-int newline_seen = 0;
-
-// add this here so that compiler does not complain about implicit function
-void uart_rx_handler();
-
-void init_uart_irq() {
-    // fill in.
-    // Disable the internal FIFO (bit 4)
-    hw_write_masked(
-        &uart0_hw->lcr_h,
-        0u,
-        (1u << 4)
-    );
-
-    // Enable the necessary bits to mask the receive interrupt 
-    hw_write_masked(
-        &uart0_hw->imsc,
-        1u << 4,
-        1u << 4
-    );  
-
-    // Set up uart_rx_handler to be the exclusive handler for the overall UART interrupt
-    irq_set_exclusive_handler(33, uart_rx_handler);
-
-    // Enable TIMER interrupt (33)
-    nvic_hw->icpr[1] = 1u << 1;
-    nvic_hw->iser[1] = 1u << 1;
-}
-
-void uart_rx_handler() {
-    // fill in.
-    // Acknowledge Interrupt
-    uart0_hw->icr = 1u << 4;
-    
-    if(seridx >= BUFSIZE) return;
-
-    char c = uart0_hw->dr & 0xFF;
-
-    if(c == 0x0A) newline_seen = 1;
-    
-    if(c == 8u && seridx > 0)
+    while(true)
     {
-        putchar(8u);
-        putchar(32u);
-        putchar(8u);
+        uart_service();
 
-        seridx--;
-        serbuf[seridx] = '\0';
-    }
-    else
-    {
-        putchar(c);
-        serbuf[seridx] = c;
-        seridx++;
-    }
-}
-
-int _read(__unused int handle, char *buffer, int length) {
-    // fill in.
-    while(!newline_seen) sleep_ms(5);
-    newline_seen = 0;
-    int cnt = seridx > length ? length : seridx;
-    memcpy(buffer, serbuf, cnt);
-    seridx = 0;
-
-    return cnt;
-}
-
-int _write(__unused int handle, char *buffer, int length) {
-    // fill in.
-    int i = 0;
-    while (i < length) {
-        // Loop until ready to write to uart (TX is not full)
-        while(uart0_hw->fr & UART_UARTFR_TXFF_BITS);
-        // Take one character and put in uart
-        uart0_hw->dr = *(buffer + i);
-        i++;
-    }
-
-    return i;
-}
-
-int main() {
-    // fill in.
-    init_uart();
-    init_uart_irq();
-
-    setbuf(stdout, NULL); // Disable buffering for stdout
-
-    char name[8];
-    int age = 0;
-    for(;;) {
-        printf("Enter your name and age: ");
-        scanf("%s %d", name, &age);
-        // THIS IS IMPORTANT.
-        fflush(stdin);
-        printf("Hello, %s! You are %d years old.\r\n", name, age);
-        sleep_ms(100);  // in case the output loops and is too fast
-    }
-}
-
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
-
-#ifdef STEP5
-
-// Copy global variables, init_uart_irq, uart_rx_handler, _read, and _write from STEP4.
-
-#define BUFSIZE 32
-char serbuf[BUFSIZE];
-int seridx = 0;
-int newline_seen = 0;
-
-// add this here so that compiler does not complain about implicit function
-void uart_rx_handler();
-
-void init_uart_irq() {
-    // fill in.
-    // Disable the internal FIFO (bit 4)
-    hw_write_masked(
-        &uart0_hw->lcr_h,
-        0u,
-        (1u << 4)
-    );
-
-    // Enable the necessary bits to mask the receive interrupt 
-    hw_write_masked(
-        &uart0_hw->imsc,
-        1u << 4,
-        1u << 4
-    );  
-
-    // Set up uart_rx_handler to be the exclusive handler for the overall UART interrupt
-    irq_set_exclusive_handler(33, uart_rx_handler);
-
-    // Enable TIMER interrupt (33)
-    nvic_hw->icpr[1] = 1u << 1;
-    nvic_hw->iser[1] = 1u << 1;
-}
-
-void uart_rx_handler() {
-    // fill in.
-    // Acknowledge Interrupt
-    uart0_hw->icr = 1u << 4;
-    
-    if(seridx >= BUFSIZE) return;
-
-    char c = uart0_hw->dr & 0xFF;
-
-    if(c == 0x0A) newline_seen = 1;
-    
-    if(c == 8u && seridx > 0)
-    {
-        putchar(8u);
-        putchar(32u);
-        putchar(8u);
-
-        seridx--;
-        serbuf[seridx] = '\0';
-    }
-    else
-    {
-        putchar(c);
-        serbuf[seridx] = c;
-        seridx++;
-    }
-}
-
-int _read(__unused int handle, char *buffer, int length) {
-    // fill in.
-    while(!newline_seen) sleep_ms(5);
-    newline_seen = 0;
-    int cnt = seridx > length ? length : seridx;
-    memcpy(buffer, serbuf, cnt);
-    seridx = 0;
-
-    return cnt;
-}
-
-int _write(__unused int handle, char *buffer, int length) {
-    // fill in.
-    int i = 0;
-    while (i < length) {
-        // Loop until ready to write to uart (TX is not full)
-        while(uart0_hw->fr & UART_UARTFR_TXFF_BITS);
-        // Take one character and put in uart
-        uart0_hw->dr = *(buffer + i);
-        i++;
-    }
-
-    return i;
-}
-
-void cmd_gpio(int argc, char **argv) {
-    // This is the main command handler for the "gpio" command.
-    // It will call either cmd_gpio_out or cmd_gpio_set based on the arguments.
-    
-    // Ensure that argc is at least 2, otherwise print an example use case and return.
-    if (argc < 2){
-        printf("Usage: \ngpio out <pin_number>\n gpio set <pin_number> <0/1>\n");
-        return;
-    }
-    // If the second argument is "out":
-    //      Ensure that argc is exactly 3, otherwise print an example use case and return.
-    //      Convert the third argument to an integer pin number using atoi.
-    //      Check if the pin number is valid (0-47), otherwise print an error and return.
-    //      Set the pin to output using gpio_init and gpio_set_dir.
-    //      Print a success message.
-    if(!strcmp(argv[1], "out")){
-        if (argc != 3)
+        // Screen transitions
+        if(screen != previousScreen)
         {
-            printf("Usage: gpio out <pin_number>\n");
-            return;
+            previousScreen = screen;
+
+            switch(screen)
+            {
+                case FOOSBALL_GAME:
+                    foosball_game_init();
+                    break;
+
+                default:
+                    break;
+            }
         }
 
-        int gpio = atoi(argv[2]);
-        if(gpio < 0 || gpio > 47)
+        // Retrieve button event
+        uint32_t irq_state = save_and_disable_interrupts();
+
+        int button = lastPressed;
+        lastPressed = 0;
+
+        restore_interrupts(irq_state);
+
+        // Run the current screen
+        switch(screen)
         {
-            printf("Invalid pin number: %d. Must be between 0 and 47.\n", gpio);
-            return;
-        }
-        
-        gpio_init(gpio);
-        gpio_set_dir(gpio, 1);
+            case SELECTOR:
+                if(button > 0)
+                    selector_update(button);
+                break;
 
-        printf("Initialized pin %d as output.\n", gpio);
-    }
+            case PONG_MENU:
+                // TODO Pong menu
+                break;
 
-    // If the second argument is "set":
-    //      Ensure that argc is exactly 4, otherwise print an example use case and return.
-    //      Convert the third argument to an integer pin number using atoi.
-    //      Check if the pin number is valid (0-47), otherwise print an error and return.
-    //      Check if the pin has been initialized as a GPIO output, if not, return.
-    //      Convert the fourth argument to an integer value (0 or 1) using atoi.
-    //      Check if the value is valid (0 or 1), otherwise print an error and return.
-    //      Set the pin to the specified value using gpio_put.
-    //      Print a success message.
-    
-    else if(!strcmp(argv[1], "set")){
-        if (argc != 4)
-        {
-            printf("Usage: gpio set <pin_number> <0/1>\n");
-            return;
-        }
+            case PONG_GAME:
+                // TODO Pong update
+                break;
 
-        int gpio = atoi(argv[2]);
-        if(gpio < 0 || gpio > 47)
-        {
-            printf("Invalid pin number: %d. Must be between 0 and 47.\n", gpio);
-            return;
-        }
-        if(gpio_get_function(gpio) != GPIO_FUNC_SIO || !gpio_is_dir_out(gpio))
-        {
-            printf("Pin %d is not initialized as an output.\n", gpio);
-            return;
-        }
+            case TETRIS_MENU:
+                // TODO Tetris menu
+                break;
 
-        int val = atoi(argv[3]);
-        if(val != 0 && val != 1)
-        {
-            printf("Invalid value: %d. Must be 0 or 1.\n", val);
-            return;
+            case TETRIS_GAME:
+                // TODO Tetris update
+                break;
+
+            case FOOSBALL_LOBBY:
+                // Host waits for JOIN_ACK
+                // Client waits for START_GAME
+                break;
+
+            case FOOSBALL_MENU:
+                // Only host can start
+                if(button == 4)
+                    foosball_start();
+                break;
+
+            case FOOSBALL_GAME:
+                foosball_game_update();
+                break;
+
+            default:
+                break;
         }
 
-        gpio_put(gpio, val);
-
-        printf("Set pin %d to %d.\n", gpio, val);
-    }
-
-    // Else, print an unknown command error.
-    else
-    {
-        printf("Unknown command: %s", argv[0]);
-    }
-
-}
-
-int main() {
-    // See lab for instructions.
-    init_uart();
-    init_uart_irq();
-
-    setbuf(stdout, NULL);
-
-    printf("%s's Peripheral Command Shell (PCS)\n", username);
-    printf("Enter a command below.\n\n");
-
-    int argc;
-    char *argv[10];
-    char input[100];
-
-    for(;;)
-    {
-        argc = 0;
-
-        printf("\r\n> ");
-        fgets(input, sizeof(input), stdin);
-        fflush(stdin);
-        input[strcspn(input, "\n")] = '\0';
-        
-        char * inptr = strtok(input, " ");
-        while(inptr != NULL && argc < 10) 
-        {
-            argv[argc] = inptr;
-            inptr = strtok(NULL, " ");
-            argc++;
-            
-        }
-        cmd_gpio(argc, argv);
+        tight_loop_contents();
     }
 }
-
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
